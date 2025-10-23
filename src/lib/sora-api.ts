@@ -47,6 +47,7 @@ export class SoraAPI {
       model: request.model,
       size: request.resolution,
       seconds: request.duration.toString(),
+      prompt: request.prompt,
     };
 
     if (request.imageUrl) {
@@ -59,8 +60,6 @@ export class SoraAPI {
           ],
         },
       ];
-    } else {
-      body.prompt = request.prompt;
     }
 
     const response = await fetch(`${OPENAI_API_BASE}/videos`, {
