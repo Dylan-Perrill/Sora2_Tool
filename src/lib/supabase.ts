@@ -13,6 +13,7 @@ export type VideoGeneration = {
   id: string;
   created_at: string;
   updated_at: string;
+  user_id: string;
   prompt: string;
   model: 'sora-2' | 'sora-2-pro';
   resolution: string;
@@ -24,4 +25,5 @@ export type VideoGeneration = {
   metadata: Record<string, any>;
   image_url: string | null;
   image_filename: string | null;
+  cost: number | null;
 };

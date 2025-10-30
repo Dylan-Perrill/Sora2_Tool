@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Video, History, TestTube, RefreshCw } from 'lucide-react';
+import { Video, History, TestTube, RefreshCw, Wallet, Settings as SettingsIcon, LogOut } from 'lucide-react';
 import { VideoService } from '../lib/video-service';
 import { VideoGeneration } from '../lib/supabase';
 import { VideoGenerationForm } from '../components/VideoGenerationForm';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { Toast, ToastType } from '../components/Toast';
 import { SoraModel, Resolution, VideoDuration } from '../lib/sora-api';
+import { useAuth } from '../lib/auth-context';
+import { AccountService } from '../lib/account-service';
 
 interface GeneratorPageProps {
   videoService: VideoService;
-  onNavigate: (page: 'generator' | 'test') => void;
+  onNavigate: (page: 'generator' | 'test' | 'account' | 'settings') => void;
 }
 
 interface ToastState {
@@ -18,21 +20,36 @@ interface ToastState {
 }
 
 export function GeneratorPage({ videoService, onNavigate }: GeneratorPageProps) {
+  const { user, signOut } = useAuth();
   const [isGenerating, setIsGenerating] = useState(false);
   const [generations, setGenerations] = useState<VideoGeneration[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastCheckTime, setLastCheckTime] = useState<Date | null>(null);
+  const [balance, setBalance] = useState<number>(0);
+
+  const accountService = new AccountService();
 
   useEffect(() => {
     loadGenerations();
+    loadBalance();
     const interval = setInterval(() => {
       checkPendingGenerations();
     }, 10000);
 
     return () => clearInterval(interval);
   }, []);
+
+  const loadBalance = async () => {
+    if (!user) return;
+    try {
+      const userBalance = await accountService.getBalance(user.id);
+      setBalance(userBalance);
+    } catch (error) {
+      console.error('Failed to load balance:', error);
+    }
+  };
 
   const loadGenerations = async () => {
     try {
@@ -98,11 +115,17 @@ export function GeneratorPage({ videoService, onNavigate }: GeneratorPageProps) 
     duration: VideoDuration;
     imageFile?: File;
   }) => {
+    if (!user) {
+      showToast('You must be logged in to generate videos', 'error');
+      return;
+    }
+
     setIsGenerating(true);
     try {
       const { imageFile, ...requestParams } = params;
-      const generation = await videoService.createVideoGeneration(requestParams, imageFile);
+      const generation = await videoService.createVideoGeneration(requestParams, user.id, imageFile);
       setGenerations((prev) => [generation, ...prev]);
+      await loadBalance();
       showToast('Video generation started!', 'success');
     } catch (error) {
       showToast(
@@ -132,24 +155,55 @@ export function GeneratorPage({ videoService, onNavigate }: GeneratorPageProps) 
     setToast({ message, type });
   };
 
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      showToast('Failed to sign out', 'error');
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
       <nav className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+              <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center">
                 <Video className="w-6 h-6 text-white" />
               </div>
-              <h1 className="text-2xl font-bold text-gray-800">Sora 2 Generator</h1>
+              <h1 className="text-2xl font-bold text-gray-800">Sora Generator</h1>
             </div>
-            <button
-              onClick={() => onNavigate('test')}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              <TestTube className="w-4 h-4" />
-              Test Page
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => onNavigate('account')}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                <Wallet className="w-4 h-4" />
+                <span className="font-semibold">${balance.toFixed(2)}</span>
+              </button>
+              <button
+                onClick={() => onNavigate('settings')}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Settings"
+              >
+                <SettingsIcon className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => onNavigate('test')}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <TestTube className="w-4 h-4" />
+                Test
+              </button>
+              <button
+                onClick={handleSignOut}
+                className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
+                title="Sign Out"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
           </div>
         </div>
       </nav>

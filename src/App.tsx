@@ -1,41 +1,63 @@
-import { useState, useEffect } from 'react';
-import { ApiKeyInput } from './components/ApiKeyInput';
+import { useState } from 'react';
+import { AuthProvider, useAuth } from './lib/auth-context';
+import { LoginPage } from './pages/LoginPage';
+import { SignupPage } from './pages/SignupPage';
 import { GeneratorPage } from './pages/GeneratorPage';
+import { AccountPage } from './pages/AccountPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { TestPage } from './pages/TestPage';
 import { VideoService } from './lib/video-service';
 
-type Page = 'generator' | 'test';
+type Page = 'login' | 'signup' | 'generator' | 'test' | 'account' | 'settings';
 
-function App() {
-  const [apiKey, setApiKey] = useState<string | null>(null);
-  const [videoService, setVideoService] = useState<VideoService | null>(null);
+function AppContent() {
+  const { user, profile, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('generator');
 
-  useEffect(() => {
-    const storedKey = localStorage.getItem('openai_api_key');
-    if (storedKey) {
-      setApiKey(storedKey);
-      setVideoService(new VideoService(storedKey));
-    }
-  }, []);
-
-  const handleApiKeySubmit = (key: string) => {
-    setApiKey(key);
-    setVideoService(new VideoService(key));
-  };
-
-  if (!apiKey || !videoService) {
-    return <ApiKeyInput onSubmit={handleApiKeySubmit} />;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-slate-800 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
+  if (!user) {
+    if (currentPage === 'signup') {
+      return <SignupPage onNavigateToLogin={() => setCurrentPage('login')} />;
+    }
+    return <LoginPage onNavigateToSignup={() => setCurrentPage('signup')} />;
+  }
+
+  if (!profile?.openai_api_key) {
+    return <SettingsPage onNavigateBack={() => setCurrentPage('generator')} />;
+  }
+
+  const videoService = new VideoService(profile.openai_api_key);
+
+  if (currentPage === 'account') {
+    return <AccountPage onNavigateBack={() => setCurrentPage('generator')} />;
+  }
+
+  if (currentPage === 'settings') {
+    return <SettingsPage onNavigateBack={() => setCurrentPage('generator')} />;
+  }
+
+  if (currentPage === 'test') {
+    return <TestPage videoService={videoService} onNavigate={setCurrentPage} />;
+  }
+
+  return <GeneratorPage videoService={videoService} onNavigate={setCurrentPage} />;
+}
+
+function App() {
   return (
-    <>
-      {currentPage === 'generator' ? (
-        <GeneratorPage videoService={videoService} onNavigate={setCurrentPage} />
-      ) : (
-        <TestPage videoService={videoService} onNavigate={setCurrentPage} />
-      )}
-    </>
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

@@ -1,17 +1,37 @@
 import { supabase, VideoGeneration } from './supabase';
 import { SoraAPI, VideoGenerationRequest } from './sora-api';
+import { AccountService } from './account-service';
+import { PricingService } from './pricing-service';
 
 export class VideoService {
   private soraAPI: SoraAPI;
+  private accountService: AccountService;
+  private pricingService: PricingService;
 
   constructor(apiKey: string) {
     this.soraAPI = new SoraAPI(apiKey);
+    this.accountService = new AccountService();
+    this.pricingService = new PricingService();
   }
 
   async createVideoGeneration(
     request: VideoGenerationRequest,
+    userId: string,
     imageFile?: File
   ): Promise<VideoGeneration> {
+    const cost = await this.pricingService.calculateCost(
+      request.model,
+      request.resolution,
+      request.duration
+    );
+
+    const balance = await this.accountService.getBalance(userId);
+    if (balance < cost) {
+      throw new Error(
+        `Insufficient balance. Required: $${cost.toFixed(2)}, Available: $${balance.toFixed(2)}`
+      );
+    }
+
     let imageUrl: string | null = null;
     let imageFilename: string | null = null;
 
@@ -22,11 +42,13 @@ export class VideoService {
     }
 
     const dbRecord: Partial<VideoGeneration> = {
+      user_id: userId,
       prompt: request.prompt,
       model: request.model,
       resolution: request.resolution,
       duration: request.duration,
       status: 'pending',
+      cost: cost,
       image_url: imageUrl,
       image_filename: imageFilename,
     };
@@ -42,6 +64,13 @@ export class VideoService {
     }
 
     try {
+      await this.accountService.charge(
+        userId,
+        cost,
+        `Video generation: ${request.model} (${request.resolution}, ${request.duration}s)`,
+        data.id
+      );
+
       const videoRequest: VideoGenerationRequest = {
         ...request,
         imageUrl: imageUrl || undefined,
@@ -65,6 +94,13 @@ export class VideoService {
 
       return updatedData!;
     } catch (error) {
+      await this.accountService.refund(
+        userId,
+        cost,
+        `Refund for failed video generation`,
+        data.id
+      );
+
       await supabase
         .from('video_generations')
         .update({
