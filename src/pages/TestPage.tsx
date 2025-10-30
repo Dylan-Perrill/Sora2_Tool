@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, XCircle, Database, Wifi, Code, Play, RefreshCw, Video } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Database, Wifi, Code, Play, RefreshCw, Video, CreditCard } from 'lucide-react';
 import { VideoService } from '../lib/video-service';
 import { supabase, VideoGeneration } from '../lib/supabase';
 
 interface TestPageProps {
   videoService: VideoService;
-  onNavigate: (page: 'generator' | 'test') => void;
+  onNavigate: (page: 'generator' | 'test' | 'billing') => void;
 }
 
 interface TestResult {
@@ -184,13 +184,20 @@ export function TestPage({ videoService, onNavigate }: TestPageProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
       <nav className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <button
             onClick={() => onNavigate('generator')}
             className="flex items-center gap-2 text-gray-700 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
             Back to Generator
+          </button>
+          <button
+            onClick={() => onNavigate('billing')}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          >
+            <CreditCard className="w-4 h-4" />
+            Billing
           </button>
         </div>
       </nav>
