@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Video, Sparkles, Clock, Monitor, Image, X } from 'lucide-react';
 import {
   SoraModel,
@@ -18,9 +18,22 @@ interface VideoGenerationFormProps {
     imageFile?: File;
   }) => void;
   isGenerating: boolean;
+  getPrice?: (options: {
+    model: SoraModel;
+    resolution: Resolution;
+    duration: VideoDuration;
+  }) => number | null;
+  accountBalance?: number;
+  currency?: string;
 }
 
-export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationFormProps) {
+export function VideoGenerationForm({
+  onSubmit,
+  isGenerating,
+  getPrice,
+  accountBalance,
+  currency = 'USD',
+}: VideoGenerationFormProps) {
   const [prompt, setPrompt] = useState('');
   const [model, setModel] = useState<SoraModel>('sora-2');
   const [resolution, setResolution] = useState<Resolution>('1280x720');
@@ -28,8 +41,9 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
-  const availableResolutions = RESOLUTION_OPTIONS.filter(
-    (option) => option.model.includes(model)
+  const availableResolutions = useMemo(
+    () => RESOLUTION_OPTIONS.filter((option) => option.model.includes(model)),
+    [model]
   );
 
   useEffect(() => {
@@ -37,6 +51,23 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
       setResolution('1280x720');
     }
   }, [model, resolution]);
+
+  const estimatedPrice = useMemo(
+    () =>
+      getPrice
+        ? getPrice({
+            model,
+            resolution,
+            duration,
+          })
+        : null,
+    [getPrice, model, resolution, duration]
+  );
+
+  const insufficientBalance =
+    typeof accountBalance === 'number' &&
+    estimatedPrice !== null &&
+    accountBalance < estimatedPrice;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,9 +233,7 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
             ))}
           </select>
           {model === 'sora-2' && (
-            <p className="mt-1 text-xs text-gray-500">
-              Higher resolutions require Sora 2 Pro
-            </p>
+            <p className="mt-1 text-xs text-gray-500">Higher resolutions require Sora 2 Pro</p>
           )}
         </div>
 
@@ -228,6 +257,30 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
           </select>
         </div>
       </div>
+
+      {getPrice && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase font-semibold text-blue-700 tracking-wide">Estimated Cost</p>
+              <p className="text-lg font-bold text-blue-900">
+                {estimatedPrice !== null ? `$${estimatedPrice.toFixed(2)} ${currency}` : 'No pricing available'}
+              </p>
+            </div>
+            <Clock className="w-5 h-5 text-blue-500" />
+          </div>
+          {typeof accountBalance === 'number' && (
+            <p className={`text-sm ${insufficientBalance ? 'text-red-600' : 'text-blue-700'}`}>
+              Balance: ${accountBalance.toFixed(2)} {currency}
+            </p>
+          )}
+          {insufficientBalance && (
+            <p className="text-xs text-red-600">
+              You do not have enough funds for this generation. Please add funds on the Billing page.
+            </p>
+          )}
+        </div>
+      )}
 
       <button
         type="submit"

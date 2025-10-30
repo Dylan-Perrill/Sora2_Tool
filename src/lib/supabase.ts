@@ -25,3 +25,34 @@ export type VideoGeneration = {
   image_url: string | null;
   image_filename: string | null;
 };
+
+export type TransactionType = 'deposit' | 'charge' | 'refund';
+
+export type AccountRecord = {
+  id: string;
+  api_key_hash: string;
+  currency: string;
+  balance: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Transaction = {
+  id: string;
+  account_id: string;
+  type: TransactionType;
+  amount: number;
+  description: string | null;
+  metadata: Record<string, any>;
+  created_at: string;
+};
+
+export type PricingTierRecord = {
+  id: number;
+  model: string;
+  resolution: string;
+  duration_seconds: number;
+  price: number;
+  currency: string;
+  created_at: string;
+};

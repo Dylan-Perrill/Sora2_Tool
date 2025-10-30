@@ -1,15 +1,25 @@
-import { useState, useEffect } from 'react';
-import { Video, History, TestTube, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Video, History, TestTube, RefreshCw, CreditCard } from 'lucide-react';
 import { VideoService } from '../lib/video-service';
 import { VideoGeneration } from '../lib/supabase';
 import { VideoGenerationForm } from '../components/VideoGenerationForm';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { Toast, ToastType } from '../components/Toast';
 import { SoraModel, Resolution, VideoDuration } from '../lib/sora-api';
+import {
+  BillingService,
+  Account,
+  PricingTier,
+  calculatePrice,
+} from '../lib/billing-service';
 
 interface GeneratorPageProps {
   videoService: VideoService;
-  onNavigate: (page: 'generator' | 'test') => void;
+  billingService: BillingService | null;
+  account: Account | null;
+  pricing: PricingTier[];
+  onNavigate: (page: 'generator' | 'test' | 'billing') => void;
+  onAccountUpdated: () => Promise<void>;
 }
 
 interface ToastState {
@@ -17,7 +27,14 @@ interface ToastState {
   type: ToastType;
 }
 
-export function GeneratorPage({ videoService, onNavigate }: GeneratorPageProps) {
+export function GeneratorPage({
+  videoService,
+  billingService,
+  account,
+  pricing,
+  onNavigate,
+  onAccountUpdated,
+}: GeneratorPageProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generations, setGenerations] = useState<VideoGeneration[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,6 +108,12 @@ export function GeneratorPage({ videoService, onNavigate }: GeneratorPageProps) 
     }
   };
 
+  const getPriceForOptions = useCallback(
+    (options: { model: SoraModel; resolution: Resolution; duration: VideoDuration }) =>
+      calculatePrice(pricing, options),
+    [pricing]
+  );
+
   const handleGenerate = async (params: {
     prompt: string;
     model: SoraModel;
@@ -98,12 +121,48 @@ export function GeneratorPage({ videoService, onNavigate }: GeneratorPageProps) 
     duration: VideoDuration;
     imageFile?: File;
   }) => {
+    if (!billingService) {
+      showToast('Billing system is still initializing. Please try again.', 'error');
+      return;
+    }
+
+    const price = getPriceForOptions({
+      model: params.model,
+      resolution: params.resolution,
+      duration: params.duration,
+    });
+
+    if (price === null) {
+      showToast('No pricing configured for the selected options', 'error');
+      return;
+    }
+
+    if (!account) {
+      showToast('Account balance not available yet. Please wait a moment.', 'error');
+      return;
+    }
+
+    if (account.balance < price) {
+      showToast('Insufficient balance. Please add funds on the Billing page.', 'error');
+      return;
+    }
+
     setIsGenerating(true);
     try {
       const { imageFile, ...requestParams } = params;
       const generation = await videoService.createVideoGeneration(requestParams, imageFile);
       setGenerations((prev) => [generation, ...prev]);
-      showToast('Video generation started!', 'success');
+      await billingService.createCharge(price, 'Video generation charge', {
+        generation_id: generation.id,
+        model: params.model,
+        resolution: params.resolution,
+        duration: params.duration,
+      });
+      await onAccountUpdated();
+      showToast(
+        `Video generation started! Charged $${price.toFixed(2)} ${account.currency}.`,
+        'success'
+      );
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : 'Failed to start video generation',
@@ -136,20 +195,45 @@ export function GeneratorPage({ videoService, onNavigate }: GeneratorPageProps) 
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
       <nav className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
                 <Video className="w-6 h-6 text-white" />
               </div>
-              <h1 className="text-2xl font-bold text-gray-800">Sora 2 Generator</h1>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800">Sora 2 Generator</h1>
+                <p className="text-xs text-gray-500">Generate videos instantly using your prepaid balance</p>
+              </div>
             </div>
-            <button
-              onClick={() => onNavigate('test')}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              <TestTube className="w-4 h-4" />
-              Test Page
-            </button>
+            <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+              <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                <CreditCard className="w-4 h-4 text-blue-600" />
+                <div className="text-sm">
+                  <p className="text-xs text-blue-700 uppercase tracking-wide">Balance</p>
+                  <p className="font-semibold text-blue-900">
+                    {account
+                      ? `$${account.balance.toFixed(2)} ${account.currency}`
+                      : 'Loading...'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onNavigate('billing')}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  Billing
+                </button>
+                <button
+                  onClick={() => onNavigate('test')}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  <TestTube className="w-4 h-4" />
+                  Test Page
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </nav>
@@ -157,7 +241,13 @@ export function GeneratorPage({ videoService, onNavigate }: GeneratorPageProps) 
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="bg-white rounded-2xl shadow-xl p-8 mb-8">
           <h2 className="text-xl font-semibold text-gray-800 mb-6">Create New Video</h2>
-          <VideoGenerationForm onSubmit={handleGenerate} isGenerating={isGenerating} />
+          <VideoGenerationForm
+            onSubmit={handleGenerate}
+            isGenerating={isGenerating}
+            getPrice={getPriceForOptions}
+            accountBalance={account?.balance}
+            currency={account?.currency}
+          />
         </div>
 
         <div className="mb-6 flex items-center justify-between">
