@@ -46,20 +46,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadProfile(session.user.id);
-      } else {
-        setProfile(null);
-        setLoading(false);
-      }
+      (async () => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          await loadProfile(session.user.id);
+        } else {
+          setProfile(null);
+          setLoading(false);
+        }
+      })();
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadProfile = async (userId: string) => {
+  const loadProfile = async (userId: string, retryCount = 0) => {
     try {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -69,35 +71,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error('Error loading profile:', error);
+        if (retryCount < 3) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return loadProfile(userId, retryCount + 1);
+        }
+      } else if (!data && retryCount < 3) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return loadProfile(userId, retryCount + 1);
       } else {
         setProfile(data);
       }
     } catch (error) {
       console.error('Error loading profile:', error);
+      if (retryCount < 3) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return loadProfile(userId, retryCount + 1);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
     });
 
     if (error) {
-      throw error;
+      throw new Error(error.message || 'Failed to create account');
+    }
+
+    if (!data.user) {
+      throw new Error('Account creation failed. Please try again.');
+    }
+
+    if (data.user) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      await loadProfile(data.user.id);
     }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      throw error;
+      if (error.message.includes('Invalid login credentials')) {
+        throw new Error('Invalid email or password');
+      }
+      throw new Error(error.message || 'Failed to sign in');
+    }
+
+    if (!data.user) {
+      throw new Error('Sign in failed. Please try again.');
     }
   };
 
