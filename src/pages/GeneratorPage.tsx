@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Video, History, TestTube, RefreshCw } from 'lucide-react';
+import { Video, History, TestTube, RefreshCw, LogOut } from 'lucide-react';
 import { VideoService } from '../lib/video-service';
 import { VideoGeneration } from '../lib/supabase';
 import { VideoGenerationForm } from '../components/VideoGenerationForm';
@@ -10,6 +10,7 @@ import { SoraModel, Resolution, VideoDuration } from '../lib/sora-api';
 interface GeneratorPageProps {
   videoService: VideoService;
   onNavigate: (page: 'generator' | 'test') => void;
+  onLogout: () => void;
 }
 
 interface ToastState {
@@ -17,7 +18,7 @@ interface ToastState {
   type: ToastType;
 }
 
-export function GeneratorPage({ videoService, onNavigate }: GeneratorPageProps) {
+export function GeneratorPage({ videoService, onNavigate, onLogout }: GeneratorPageProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generations, setGenerations] = useState<VideoGeneration[]>([]);
   const [loading, setLoading] = useState(true);
@@ -143,13 +144,22 @@ export function GeneratorPage({ videoService, onNavigate }: GeneratorPageProps) 
               </div>
               <h1 className="text-2xl font-bold text-gray-800">Sora 2 Generator</h1>
             </div>
-            <button
-              onClick={() => onNavigate('test')}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              <TestTube className="w-4 h-4" />
-              Test Page
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => onNavigate('test')}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <TestTube className="w-4 h-4" />
+                Test Page
+              </button>
+              <button
+                onClick={onLogout}
+                className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       </nav>

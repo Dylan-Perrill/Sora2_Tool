@@ -20,8 +20,17 @@ function App() {
   }, []);
 
   const handleApiKeySubmit = (key: string) => {
-    setApiKey(key);
-    setVideoService(new VideoService(key));
+    const normalizedKey = key.trim();
+    localStorage.setItem('openai_api_key', normalizedKey);
+    setApiKey(normalizedKey);
+    setVideoService(new VideoService(normalizedKey));
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('openai_api_key');
+    setApiKey(null);
+    setVideoService(null);
+    setCurrentPage('generator');
   };
 
   if (!apiKey || !videoService) {
@@ -31,9 +40,17 @@ function App() {
   return (
     <>
       {currentPage === 'generator' ? (
-        <GeneratorPage videoService={videoService} onNavigate={setCurrentPage} />
+        <GeneratorPage
+          videoService={videoService}
+          onNavigate={setCurrentPage}
+          onLogout={handleLogout}
+        />
       ) : (
-        <TestPage videoService={videoService} onNavigate={setCurrentPage} />
+        <TestPage
+          videoService={videoService}
+          onNavigate={setCurrentPage}
+          onLogout={handleLogout}
+        />
       )}
     </>
   );
