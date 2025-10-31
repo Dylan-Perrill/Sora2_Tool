@@ -51,36 +51,24 @@ export class SoraAPI {
       throw new Error(`Invalid resolution provided: ${request.resolution}`);
     }
 
-    const userContent: Array<Record<string, unknown>> = [
-      {
-        type: 'input_text',
-        text: request.prompt,
-      },
-    ];
-
-    if (request.imageUrl) {
-      userContent.push({
-        type: 'input_image',
-        image_url: request.imageUrl,
-      });
-    }
-
-    const body: any = {
+    const body: Record<string, unknown> = {
       model: request.model,
       prompt: request.prompt,
       size: request.resolution,
-      seconds: request.duration.toString(),
-      input: [
-        {
-          role: 'user',
-          content: userContent,
-        },
-      ],
+      seconds: request.duration,
       dimensions: {
         width,
         height,
       },
     };
+
+    if (request.imageUrl) {
+      body.reference_images = [
+        {
+          image_url: request.imageUrl,
+        },
+      ];
+    }
 
     const response = await fetch(`${OPENAI_API_BASE}/videos`, {
       method: 'POST',

@@ -6,6 +6,8 @@ import { VideoService } from './lib/video-service';
 
 type Page = 'generator' | 'test';
 
+const normalizeApiKey = (key: string) => key.trim().replace(/^bearer\s+/i, '');
+
 function App() {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [videoService, setVideoService] = useState<VideoService | null>(null);
@@ -14,13 +16,17 @@ function App() {
   useEffect(() => {
     const storedKey = localStorage.getItem('openai_api_key');
     if (storedKey) {
-      setApiKey(storedKey);
-      setVideoService(new VideoService(storedKey));
+      const normalized = normalizeApiKey(storedKey);
+      setApiKey(normalized);
+      setVideoService(new VideoService(normalized));
+      if (normalized !== storedKey) {
+        localStorage.setItem('openai_api_key', normalized);
+      }
     }
   }, []);
 
   const handleApiKeySubmit = (key: string) => {
-    const normalizedKey = key.trim();
+    const normalizedKey = normalizeApiKey(key);
     localStorage.setItem('openai_api_key', normalizedKey);
     setApiKey(normalizedKey);
     setVideoService(new VideoService(normalizedKey));
