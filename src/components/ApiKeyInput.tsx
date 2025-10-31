@@ -12,7 +12,6 @@ export function ApiKeyInput({ onSubmit }: ApiKeyInputProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (apiKey.trim()) {
-      localStorage.setItem('openai_api_key', apiKey.trim());
       onSubmit(apiKey.trim());
     }
   };
