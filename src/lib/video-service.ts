@@ -46,7 +46,7 @@ export class VideoService {
         ...request,
         imageUrl: imageUrl || undefined,
       };
-      const response = await this.soraAPI.createVideo(videoRequest);
+      const response = await this.soraAPI.createVideo(videoRequest, imageFile);
 
       await supabase
         .from('video_generations')

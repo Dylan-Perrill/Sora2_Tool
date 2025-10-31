@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Video, Sparkles, Clock, Monitor, Image, X } from 'lucide-react';
+import { Video, Sparkles, Clock, Monitor, Image as ImageIcon, X } from 'lucide-react';
 import {
   SoraModel,
   Resolution,
@@ -8,6 +8,7 @@ import {
   DURATION_OPTIONS,
   MODEL_OPTIONS,
 } from '../lib/sora-api';
+import { resizeImageToResolution } from '../lib/image-utils';
 
 interface VideoGenerationFormProps {
   onSubmit: (params: {
@@ -27,6 +28,7 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
   const [duration, setDuration] = useState<VideoDuration>(4);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageDims, setImageDims] = useState<{ width: number; height: number } | null>(null);
 
   const availableResolutions = RESOLUTION_OPTIONS.filter(
     (option) => option.model.includes(model)
@@ -38,16 +40,52 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
     }
   }, [model, resolution]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!prompt.trim()) return;
+
+    let fileToSend = imageFile || undefined;
+
+    // If an image is provided and its dimensions do not match the selected resolution,
+    // auto-resize to the exact size without cropping (letterbox/pillarbox as needed)
+    if (imageFile) {
+      if (!imageDims) {
+        alert('Image is still loading. Please wait a moment and try again.');
+        return;
+      }
+      const [targetW, targetH] = resolution.split('x').map((v) => Number(v));
+      if (imageDims.width !== targetW || imageDims.height !== targetH) {
+        try {
+          const resized = await resizeImageToResolution(imageFile, resolution, {
+            background: '#000',
+            format: 'image/png',
+          });
+          fileToSend = resized;
+
+          // Update preview and measured dimensions to reflect resized image
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const url = reader.result as string;
+            setImagePreview(url);
+            const img = new window.Image();
+            img.onload = () => setImageDims({ width: img.width, height: img.height });
+            img.onerror = () => setImageDims(null);
+            img.src = url;
+          };
+          reader.readAsDataURL(resized);
+        } catch (err) {
+          alert('Failed to resize the image. Please try another image or resolution.');
+          return;
+        }
+      }
+    }
 
     onSubmit({
       prompt: prompt.trim(),
       model,
       resolution,
       duration,
-      imageFile: imageFile || undefined,
+      imageFile: fileToSend,
     });
   };
 
@@ -61,7 +99,17 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
       setImageFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setImagePreview(reader.result as string);
+        const url = reader.result as string;
+        setImagePreview(url);
+        // Determine image dimensions
+        const img = new window.Image();
+        img.onload = () => {
+          setImageDims({ width: img.width, height: img.height });
+        };
+        img.onerror = () => {
+          setImageDims(null);
+        };
+        img.src = url;
       };
       reader.readAsDataURL(file);
     }
@@ -70,6 +118,7 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
   const handleRemoveImage = () => {
     setImageFile(null);
     setImagePreview(null);
+    setImageDims(null);
   };
 
   const examplePrompts = [
@@ -115,7 +164,7 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
 
       <div>
         <label htmlFor="image" className="block text-sm font-medium text-gray-700 mb-2">
-          <Image className="inline w-4 h-4 mr-1" />
+          <ImageIcon className="inline w-4 h-4 mr-1" />
           Starting Image (Optional)
         </label>
         {!imagePreview ? (
@@ -132,7 +181,7 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
               htmlFor="image"
               className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
             >
-              <Image className="w-8 h-8 text-gray-400 mb-2" />
+              <ImageIcon className="w-8 h-8 text-gray-400 mb-2" />
               <span className="text-sm text-gray-500">Click to upload an image</span>
               <span className="text-xs text-gray-400 mt-1">JPG, PNG, WEBP (Max 50MB)</span>
             </label>

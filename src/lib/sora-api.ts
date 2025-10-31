@@ -35,6 +35,15 @@ export interface VideoGenerationResponse {
 
 const OPENAI_API_BASE = 'https://api.openai.com/v1';
 
+// Shape of the create video payload sent to the API
+interface SoraCreateVideoBody {
+  model: SoraModel;
+  prompt: string;
+  size: Resolution;
+  seconds: string;
+  image?: string;
+}
+
 export class SoraAPI {
   private apiKey: string;
 
@@ -42,13 +51,90 @@ export class SoraAPI {
     this.apiKey = apiKey;
   }
 
-  async createVideo(request: VideoGenerationRequest): Promise<VideoGenerationResponse> {
-    const body: any = {
+  async createVideo(
+    request: VideoGenerationRequest,
+    inputReference?: File | string
+  ): Promise<VideoGenerationResponse> {
+    // If an input reference is provided, use multipart/form-data and send it as `input_reference`
+    if (inputReference) {
+      const form = new FormData();
+      form.append('model', request.model);
+      form.append('prompt', request.prompt);
+      form.append('size', request.resolution);
+      form.append('seconds', request.duration.toString());
+
+      if (inputReference instanceof File) {
+        form.append('input_reference', inputReference, inputReference.name);
+      } else {
+        // Some APIs may allow a URL here; if not, server will respond with a clear error
+        form.append('input_reference', inputReference);
+      }
+
+      try {
+        console.debug('[SoraAPI] createVideo payload (multipart)', {
+          model: request.model,
+          prompt: request.prompt,
+          size: request.resolution,
+          seconds: request.duration,
+          hasImageFile: inputReference instanceof File,
+        });
+      } catch {
+        void 0;
+      }
+
+      const response = await fetch(`${OPENAI_API_BASE}/videos`, {
+        method: 'POST',
+        headers: {
+          // Do not set Content-Type for FormData; the browser will set proper boundary
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+        body: form,
+      });
+
+      if (!response.ok) {
+        let message = `API request failed with status ${response.status}`;
+        try {
+          const text = await response.text();
+          try {
+            const parsed = JSON.parse(text);
+            message = parsed?.error?.message || message;
+          } catch {
+            message = `${message}: ${text?.slice(0, 500)}`;
+          }
+        } catch {
+          void 0;
+        }
+        throw new Error(message);
+      }
+
+      return response.json();
+    }
+
+    // Fallback: JSON payload when no input reference is provided
+    const body: SoraCreateVideoBody = {
       model: request.model,
       prompt: request.prompt,
       size: request.resolution,
       seconds: request.duration.toString(),
+      // image left out here; use multipart if sending a real reference
     };
+
+    if (request.imageUrl) {
+      // For servers that accept a simple URL field named `image`, keep this backward-compatible path
+      body.image = request.imageUrl;
+    }
+
+    try {
+      console.debug('[SoraAPI] createVideo payload (json)', {
+        model: body.model,
+        prompt: body.prompt,
+        size: body.size,
+        seconds: body.seconds,
+        hasImage: Boolean(request.imageUrl),
+      });
+    } catch {
+      void 0;
+    }
 
     const response = await fetch(`${OPENAI_API_BASE}/videos`, {
       method: 'POST',
@@ -60,11 +146,21 @@ export class SoraAPI {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(
-        errorData.error?.message ||
-        `API request failed with status ${response.status}`
-      );
+      let message = `API request failed with status ${response.status}`;
+      try {
+        const text = await response.text();
+        try {
+          const parsed = JSON.parse(text);
+          message = parsed?.error?.message || message;
+        } catch {
+          // non-JSON body; include a snippet for debugging
+          message = `${message}: ${text?.slice(0, 500)}`;
+        }
+      } catch {
+        // ignore read errors
+        void 0;
+      }
+      throw new Error(message);
     }
 
     return response.json();
