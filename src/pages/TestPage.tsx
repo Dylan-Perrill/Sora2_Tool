@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, XCircle, Database, Wifi, Code, Play, RefreshCw, Video } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Database, Wifi, Code, Play, RefreshCw, Video, LogOut } from 'lucide-react';
 import { VideoService } from '../lib/video-service';
 import { supabase, VideoGeneration } from '../lib/supabase';
 
 interface TestPageProps {
   videoService: VideoService;
   onNavigate: (page: 'generator' | 'test') => void;
+  onLogout: () => void;
 }
 
 interface TestResult {
@@ -15,7 +16,7 @@ interface TestResult {
   details?: any;
 }
 
-export function TestPage({ videoService, onNavigate }: TestPageProps) {
+export function TestPage({ videoService, onNavigate, onLogout }: TestPageProps) {
   const [tests, setTests] = useState<TestResult[]>([
     { name: 'OpenAI API Connection', status: 'idle' },
     { name: 'Supabase Database Connection', status: 'idle' },
@@ -185,13 +186,22 @@ export function TestPage({ videoService, onNavigate }: TestPageProps) {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
       <nav className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 py-4">
-          <button
-            onClick={() => onNavigate('generator')}
-            className="flex items-center gap-2 text-gray-700 hover:text-gray-900 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            Back to Generator
-          </button>
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => onNavigate('generator')}
+              className="flex items-center gap-2 text-gray-700 hover:text-gray-900 transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              Back to Generator
+            </button>
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              Logout
+            </button>
+          </div>
         </div>
       </nav>
 

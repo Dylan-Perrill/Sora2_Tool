@@ -43,11 +43,43 @@ export class SoraAPI {
   }
 
   async createVideo(request: VideoGenerationRequest): Promise<VideoGenerationResponse> {
+    const [width, height] = request.resolution
+      .split('x')
+      .map((value) => Number.parseInt(value, 10));
+
+    if (!Number.isFinite(width) || !Number.isFinite(height)) {
+      throw new Error(`Invalid resolution provided: ${request.resolution}`);
+    }
+
+    const userContent: Array<Record<string, unknown>> = [
+      {
+        type: 'input_text',
+        text: request.prompt,
+      },
+    ];
+
+    if (request.imageUrl) {
+      userContent.push({
+        type: 'input_image',
+        image_url: request.imageUrl,
+      });
+    }
+
     const body: any = {
       model: request.model,
       prompt: request.prompt,
       size: request.resolution,
       seconds: request.duration.toString(),
+      input: [
+        {
+          role: 'user',
+          content: userContent,
+        },
+      ],
+      dimensions: {
+        width,
+        height,
+      },
     };
 
     const response = await fetch(`${OPENAI_API_BASE}/videos`, {
