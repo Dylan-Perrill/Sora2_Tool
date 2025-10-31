@@ -133,11 +133,11 @@ Here are common areas you might adapt:
 * **Tighten security** – revise the migrations to add `user_id` columns, lock down storage policies, and enforce `auth.uid()` checks once authentication is introduced.
 * **Automate storage cleanup** – expand `deleteVideoGeneration()` to remove associated MP4 and image assets from Supabase storage to prevent orphaned files.【F:src/lib/video-service.ts†L170-L192】
 
-## TODO: Investigate image-to-video generation failures
+## Image-to-video generation checklist
 
-If video jobs fail when a starting image is uploaded, focus your debugging on the following areas:
+If a generated video fails to honor the uploaded reference image, work through the following checklist:
 
-1. **Sora API payload** – `VideoService.createVideoGeneration()` passes an `imageUrl` field into the request object, but `SoraAPI.createVideo()` currently ignores it when constructing the JSON body. Update [`src/lib/sora-api.ts`](src/lib/sora-api.ts) so the POST payload forwards the image reference in the format expected by the Sora API (for example, `image_url` or `image` depending on the spec).【F:src/lib/video-service.ts†L37-L60】【F:src/lib/sora-api.ts†L33-L74】
+1. **Sora API payload** – `VideoService.createVideoGeneration()` already provides an `imageUrl` when the file upload to Supabase succeeds, and `SoraAPI.createVideo()` now forwards it as `image_url` so the backend receives the reference when building the job.【F:src/lib/video-service.ts†L37-L60】【F:src/lib/sora-api.ts†L32-L74】
 2. **Supabase storage permissions** – ensure the `image_files` bucket is public (or otherwise accessible) so OpenAI can fetch the uploaded asset. Review the policies defined in `20251023173209_create_image_storage_bucket.sql` and tighten or relax them as needed for your environment.【F:supabase/migrations/20251023173209_create_image_storage_bucket.sql†L1-L59】
 3. **Request metadata persistence** – confirm `image_url` and `image_filename` are populated in the `video_generations` table by inspecting rows in Supabase Studio or logging the data returned from `VideoService.createVideoGeneration()`. This helps verify the upload step succeeded before the OpenAI request is sent.【F:src/lib/video-service.ts†L16-L75】
 4. **UI upload flow** – the form enforces a 50 MB limit and only accepts specific MIME types. If legitimate files are rejected or corrupted, adjust the checks in [`VideoGenerationForm`](src/components/VideoGenerationForm.tsx).【F:src/components/VideoGenerationForm.tsx†L30-L105】

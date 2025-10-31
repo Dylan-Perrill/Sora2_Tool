@@ -43,12 +43,16 @@ export class SoraAPI {
   }
 
   async createVideo(request: VideoGenerationRequest): Promise<VideoGenerationResponse> {
-    const body: any = {
+    const body: Record<string, unknown> = {
       model: request.model,
       prompt: request.prompt,
       size: request.resolution,
       seconds: request.duration.toString(),
     };
+
+    if (request.imageUrl) {
+      body.image_url = request.imageUrl;
+    }
 
     const response = await fetch(`${OPENAI_API_BASE}/videos`, {
       method: 'POST',
