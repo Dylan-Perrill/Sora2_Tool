@@ -55,6 +55,11 @@ export class SoraAPI {
       seconds: request.duration.toString(),
     };
 
+    
+    if (request.imageUrl) {
+      body.image_url = request.imageUrl;
+    }
+
     const response = await fetch(`${OPENAI_API_BASE}/videos`, {
       method: 'POST',
       headers: {
