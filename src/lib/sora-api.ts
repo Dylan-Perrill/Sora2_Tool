@@ -39,7 +39,12 @@ export class SoraAPI {
   private apiKey: string;
 
   constructor(apiKey: string) {
-    this.apiKey = apiKey;
+    const normalizedKey = apiKey.trim();
+    if (!normalizedKey) {
+      throw new Error('Missing OpenAI API key. Please provide a valid key.');
+    }
+
+    this.apiKey = normalizedKey;
   }
 
   async createVideo(request: VideoGenerationRequest): Promise<VideoGenerationResponse> {
