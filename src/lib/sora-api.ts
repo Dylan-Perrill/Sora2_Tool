@@ -14,6 +14,7 @@ export interface VideoGenerationRequest {
   resolution: Resolution;
   duration: VideoDuration;
   imageUrl?: string;
+  imageFile?: File; // File to send directly to API (preferred over URL)
 }
 
 export interface VideoGenerationResponse {
@@ -48,17 +49,43 @@ export class SoraAPI {
   }
 
   async createVideo(request: VideoGenerationRequest): Promise<VideoGenerationResponse> {
+    // If image file is provided, use FormData (multipart/form-data)
+    // Otherwise use JSON
+    if (request.imageFile) {
+      const formData = new FormData();
+      formData.append('model', request.model);
+      formData.append('prompt', request.prompt);
+      formData.append('size', request.resolution);
+      formData.append('seconds', request.duration.toString());
+      formData.append('input_reference', request.imageFile);
+
+      const response = await fetch(`${OPENAI_API_BASE}/videos`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          // Don't set Content-Type - browser will set it with boundary for FormData
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.error?.message ||
+          `API request failed with status ${response.status}`
+        );
+      }
+
+      return response.json();
+    }
+
+    // No image - use JSON request
     const body: any = {
       model: request.model,
       prompt: request.prompt,
       size: request.resolution,
       seconds: request.duration.toString(),
     };
-
-    
-    if (request.imageUrl) {
-      body.image_url = request.imageUrl;
-    }
 
     const response = await fetch(`${OPENAI_API_BASE}/videos`, {
       method: 'POST',

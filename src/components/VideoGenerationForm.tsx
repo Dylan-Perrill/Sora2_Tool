@@ -25,8 +25,12 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
   const [model, setModel] = useState<SoraModel>('sora-2');
   const [resolution, setResolution] = useState<Resolution>('1280x720');
   const [duration, setDuration] = useState<VideoDuration>(4);
+  const [originalImageFile, setOriginalImageFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [imageInfo, setImageInfo] = useState<string | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
 
   const availableResolutions = RESOLUTION_OPTIONS.filter(
     (option) => option.model.includes(model)
@@ -38,9 +42,119 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
     }
   }, [model, resolution]);
 
+  // Resize image when resolution changes or image is selected
+  useEffect(() => {
+    if (originalImageFile && resolution) {
+      resizeImageToResolution(originalImageFile, resolution);
+    }
+  }, [originalImageFile, resolution]);
+
+  const resizeImageToResolution = async (file: File, targetResolution: Resolution) => {
+    setIsResizing(true);
+    try {
+      const [targetWidth, targetHeight] = targetResolution.split('x').map(Number);
+      
+      // Load the image
+      const img = document.createElement('img');
+      const url = URL.createObjectURL(file);
+      
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('Failed to load image'));
+        };
+        img.src = url;
+      });
+
+      const originalWidth = img.width;
+      const originalHeight = img.height;
+      setImageDimensions({ width: originalWidth, height: originalHeight });
+
+      // Calculate scaling to maintain aspect ratio
+      const scale = Math.max(targetWidth / originalWidth, targetHeight / originalHeight);
+      const scaledWidth = originalWidth * scale;
+      const scaledHeight = originalHeight * scale;
+
+      // Create canvas for resizing
+      const canvas = document.createElement('canvas');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        throw new Error('Failed to get canvas context');
+      }
+
+      // Fill with white background (for padding)
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+      // Calculate position to center the scaled image
+      const x = (targetWidth - scaledWidth) / 2;
+      const y = (targetHeight - scaledHeight) / 2;
+
+      // Draw the scaled image (will crop if larger than target, pad if smaller)
+      ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+
+      // Convert canvas to blob
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error('Failed to convert canvas to blob'));
+            }
+          },
+          file.type || 'image/jpeg',
+          0.95 // High quality
+        );
+      });
+
+      // Create a new File from the blob
+      const resizedFile = new File([blob], file.name, {
+        type: file.type || 'image/jpeg',
+        lastModified: Date.now(),
+      });
+
+      setImageFile(resizedFile);
+
+      // Update preview with resized image
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(resizedFile);
+
+      // Set info message
+      if (originalWidth !== targetWidth || originalHeight !== targetHeight) {
+        setImageInfo(
+          `Image resized from ${originalWidth}x${originalHeight} to ${targetWidth}x${targetHeight} (maintaining aspect ratio)`
+        );
+      } else {
+        setImageInfo(null);
+      }
+    } catch (error) {
+      console.error('Error resizing image:', error);
+      setImageInfo('Failed to resize image. Using original.');
+      setImageFile(file);
+    } finally {
+      setIsResizing(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!prompt.trim()) return;
+    
+    // Wait for resizing to complete
+    if (isResizing) {
+      return;
+    }
 
     onSubmit({
       prompt: prompt.trim(),
@@ -51,25 +165,30 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
     });
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 50 * 1024 * 1024) {
         alert('Image file size must be less than 50MB');
         return;
       }
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      
+      try {
+        setOriginalImageFile(file);
+        // resizeImageToResolution will be called by useEffect
+      } catch (error) {
+        alert('Failed to load image. Please try a different file.');
+        console.error('Error loading image:', error);
+      }
     }
   };
 
   const handleRemoveImage = () => {
+    setOriginalImageFile(null);
     setImageFile(null);
     setImagePreview(null);
+    setImageDimensions(null);
+    setImageInfo(null);
   };
 
   const examplePrompts = [
@@ -155,8 +274,23 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
           </div>
         )}
         <p className="mt-1 text-xs text-gray-500">
-          Upload an image to use as the starting frame or reference for your video
+          Upload an image to use as the starting frame or reference for your video. The image will be automatically resized to match the selected resolution.
         </p>
+        {isResizing && (
+          <p className="mt-1 text-xs text-blue-600 font-medium">
+            Resizing image...
+          </p>
+        )}
+        {imageDimensions && !isResizing && (
+          <p className="mt-1 text-xs text-gray-600">
+            Original size: {imageDimensions.width}x{imageDimensions.height} pixels
+          </p>
+        )}
+        {imageInfo && !isResizing && (
+          <p className="mt-1 text-xs text-green-600 font-medium">
+            ✓ {imageInfo}
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -231,7 +365,7 @@ export function VideoGenerationForm({ onSubmit, isGenerating }: VideoGenerationF
 
       <button
         type="submit"
-        disabled={!prompt.trim() || isGenerating}
+        disabled={!prompt.trim() || isGenerating || isResizing}
         className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-4 px-6 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
       >
         <Video className="w-5 h-5" />

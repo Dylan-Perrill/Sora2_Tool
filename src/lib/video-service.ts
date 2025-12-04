@@ -45,6 +45,7 @@ export class VideoService {
       const videoRequest: VideoGenerationRequest = {
         ...request,
         imageUrl: imageUrl || undefined,
+        imageFile: imageFile || undefined, // Pass File directly to API
       };
       const response = await this.soraAPI.createVideo(videoRequest);
 

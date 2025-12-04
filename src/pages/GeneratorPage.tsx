@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Video, History, TestTube, RefreshCw, LogOut } from 'lucide-react';
 import { VideoService } from '../lib/video-service';
 import { VideoGeneration } from '../lib/supabase';
@@ -25,15 +25,38 @@ export function GeneratorPage({ videoService, onNavigate, onLogout }: GeneratorP
   const [toast, setToast] = useState<ToastState | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastCheckTime, setLastCheckTime] = useState<Date | null>(null);
+  const generationsRef = useRef<VideoGeneration[]>([]);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    generationsRef.current = generations;
+  }, [generations]);
 
   useEffect(() => {
     loadGenerations();
+  }, []);
+
+  // Auto-poll for pending/processing videos every 5 seconds
+  useEffect(() => {
+    const pending = generations.filter(
+      (g) => g.status === 'processing' || g.status === 'pending'
+    );
+
+    // Only set up polling if there are pending videos
+    if (pending.length === 0) {
+      return;
+    }
+
+    console.log(`[GeneratorPage] Setting up auto-polling for ${pending.length} pending videos`);
     const interval = setInterval(() => {
       checkPendingGenerations();
-    }, 10000);
+    }, 5000); // Check every 5 seconds
+
+    // Also check immediately
+    checkPendingGenerations();
 
     return () => clearInterval(interval);
-  }, []);
+  }, [generations]);
 
   const loadGenerations = async () => {
     try {
@@ -47,7 +70,9 @@ export function GeneratorPage({ videoService, onNavigate, onLogout }: GeneratorP
   };
 
   const checkPendingGenerations = async () => {
-    const pending = generations.filter(
+    // Use ref to get current state without causing re-renders
+    const currentGenerations = generationsRef.current;
+    const pending = currentGenerations.filter(
       (g) => g.status === 'processing' || g.status === 'pending'
     );
 
@@ -58,25 +83,37 @@ export function GeneratorPage({ videoService, onNavigate, onLogout }: GeneratorP
     console.log(`[GeneratorPage] Checking status for ${pending.length} pending videos...`);
     setLastCheckTime(new Date());
 
-    for (const gen of pending) {
-      try {
-        console.log(`[GeneratorPage] Checking video ${gen.id} (Job: ${gen.openai_job_id})`);
-        const updated = await videoService.checkVideoStatus(gen.id);
-        setGenerations((prev) =>
-          prev.map((g) => (g.id === updated.id ? updated : g))
-        );
-
-        if (updated.status === 'completed' && gen.status !== 'completed') {
-          console.log(`[GeneratorPage] Video ${gen.id} completed!`);
-          showToast('Video generation completed!', 'success');
-        } else if (updated.status === 'failed' && gen.status !== 'failed') {
-          console.log(`[GeneratorPage] Video ${gen.id} failed`);
-          showToast('Video generation failed', 'error');
+    // Check status for all pending videos in parallel
+    await Promise.all(
+      pending.map(async (gen) => {
+        try {
+          console.log(`[GeneratorPage] Checking video ${gen.id} (Job: ${gen.openai_job_id})`);
+          const updated = await videoService.checkVideoStatus(gen.id);
+          
+          // Update state with the new status
+          setGenerations((prev) => {
+            const existing = prev.find((g) => g.id === updated.id);
+            const wasCompleted = existing?.status === 'completed';
+            const wasFailed = existing?.status === 'failed';
+            
+            const newGenerations = prev.map((g) => (g.id === updated.id ? updated : g));
+            
+            // Show toast only on status change
+            if (updated.status === 'completed' && !wasCompleted) {
+              console.log(`[GeneratorPage] Video ${gen.id} completed!`);
+              showToast('Video generation completed!', 'success');
+            } else if (updated.status === 'failed' && !wasFailed) {
+              console.log(`[GeneratorPage] Video ${gen.id} failed`);
+              showToast('Video generation failed', 'error');
+            }
+            
+            return newGenerations;
+          });
+        } catch (error) {
+          console.error(`[GeneratorPage] Error checking status for ${gen.id}:`, error);
         }
-      } catch (error) {
-        console.error('[GeneratorPage] Error checking status:', error);
-      }
-    }
+      })
+    );
   };
 
   const handleManualRefresh = async () => {
@@ -175,6 +212,12 @@ export function GeneratorPage({ videoService, onNavigate, onLogout }: GeneratorP
             <History className="w-6 h-6 text-gray-700" />
             <h2 className="text-xl font-semibold text-gray-800">Video History</h2>
             <span className="text-sm text-gray-500">({generations.length} total)</span>
+            {generations.some((g) => g.status === 'processing' || g.status === 'pending') && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs">
+                <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
+                <span>Auto-checking every 5s</span>
+              </div>
+            )}
             {lastCheckTime && (
               <span className="text-xs text-gray-400">
                 Last check: {lastCheckTime.toLocaleTimeString()}
@@ -188,7 +231,7 @@ export function GeneratorPage({ videoService, onNavigate, onLogout }: GeneratorP
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? 'Checking...' : 'Refresh Status'}
+              {isRefreshing ? 'Checking...' : 'Refresh Now'}
             </button>
           )}
         </div>
