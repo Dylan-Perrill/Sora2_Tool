@@ -79,13 +79,18 @@ export class SoraAPI {
       return response.json();
     }
 
-    // No image - use JSON request
+    // No image file - use JSON request
     const body: any = {
       model: request.model,
       prompt: request.prompt,
       size: request.resolution,
       seconds: request.duration.toString(),
     };
+
+    // Include imageUrl if provided (for URL-based image uploads)
+    if (request.imageUrl) {
+      body.input_reference = request.imageUrl;
+    }
 
     const response = await fetch(`${OPENAI_API_BASE}/videos`, {
       method: 'POST',

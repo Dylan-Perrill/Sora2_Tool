@@ -84,36 +84,41 @@ export function GeneratorPage({ videoService, onNavigate, onLogout }: GeneratorP
     setLastCheckTime(new Date());
 
     // Check status for all pending videos in parallel
-    await Promise.all(
+    const statusUpdates = await Promise.all(
       pending.map(async (gen) => {
         try {
           console.log(`[GeneratorPage] Checking video ${gen.id} (Job: ${gen.openai_job_id})`);
           const updated = await videoService.checkVideoStatus(gen.id);
-          
-          // Update state with the new status
-          setGenerations((prev) => {
-            const existing = prev.find((g) => g.id === updated.id);
-            const wasCompleted = existing?.status === 'completed';
-            const wasFailed = existing?.status === 'failed';
-            
-            const newGenerations = prev.map((g) => (g.id === updated.id ? updated : g));
-            
-            // Show toast only on status change
-            if (updated.status === 'completed' && !wasCompleted) {
-              console.log(`[GeneratorPage] Video ${gen.id} completed!`);
-              showToast('Video generation completed!', 'success');
-            } else if (updated.status === 'failed' && !wasFailed) {
-              console.log(`[GeneratorPage] Video ${gen.id} failed`);
-              showToast('Video generation failed', 'error');
-            }
-            
-            return newGenerations;
-          });
+          return { previous: gen, updated };
         } catch (error) {
           console.error(`[GeneratorPage] Error checking status for ${gen.id}:`, error);
+          return null;
         }
       })
     );
+
+    // Process status updates: update state first (pure), then handle side effects
+    statusUpdates.forEach((update) => {
+      if (!update) return;
+
+      const { previous, updated } = update;
+      const wasCompleted = previous.status === 'completed';
+      const wasFailed = previous.status === 'failed';
+      const isNowCompleted = updated.status === 'completed' && !wasCompleted;
+      const isNowFailed = updated.status === 'failed' && !wasFailed;
+
+      // Pure state update - no side effects
+      setGenerations((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
+
+      // Handle side effects outside state updater
+      if (isNowCompleted) {
+        console.log(`[GeneratorPage] Video ${updated.id} completed!`);
+        showToast('Video generation completed!', 'success');
+      } else if (isNowFailed) {
+        console.log(`[GeneratorPage] Video ${updated.id} failed`);
+        showToast('Video generation failed', 'error');
+      }
+    });
   };
 
   const handleManualRefresh = async () => {
