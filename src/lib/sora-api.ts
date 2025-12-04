@@ -1,51 +1,43 @@
-export type SoraModel = 'sora-2' | 'sora-2-pro';
+import type {
+  SoraModel,
+  Resolution,
+  VideoDuration,
+  VideoGenerationRequest,
+  VideoGenerationResponse,
+  ConnectionTestResult,
+} from './types';
+import type { SoraAPIConfig } from './config';
 
-export type Resolution =
-  | '1280x720'
-  | '720x1280'
-  | '1792x1024'
-  | '1024x1792';
-
-export type VideoDuration = 4 | 8 | 12;
-
-export interface VideoGenerationRequest {
-  prompt: string;
-  model: SoraModel;
-  resolution: Resolution;
-  duration: VideoDuration;
-  imageUrl?: string;
-  imageFile?: File; // File to send directly to API (preferred over URL)
-}
-
-export interface VideoGenerationResponse {
-  id: string;
-  object: string;
-  model: string;
-  status: string;
-  prompt: string;
-  created_at: number;
-  url?: string;
-  download_url?: string;
-  progress?: number;
-  error?: {
-    message: string;
-    type: string;
-    code: string;
-  };
-}
-
-const OPENAI_API_BASE = 'https://api.openai.com/v1';
+// Re-export types for backward compatibility
+export type {
+  SoraModel,
+  Resolution,
+  VideoDuration,
+  VideoGenerationRequest,
+  VideoGenerationResponse,
+};
 
 export class SoraAPI {
   private apiKey: string;
+  private baseUrl: string;
 
-  constructor(apiKey: string) {
-    const normalizedKey = apiKey.trim();
-    if (!normalizedKey) {
-      throw new Error('Missing OpenAI API key. Please provide a valid key.');
+  constructor(config: SoraAPIConfig | string) {
+    // Support both old API (string) and new API (config object) for backward compatibility
+    if (typeof config === 'string') {
+      const normalizedKey = config.trim();
+      if (!normalizedKey) {
+        throw new Error('Missing OpenAI API key. Please provide a valid key.');
+      }
+      this.apiKey = normalizedKey;
+      this.baseUrl = 'https://api.openai.com/v1';
+    } else {
+      const normalizedKey = config.apiKey.trim();
+      if (!normalizedKey) {
+        throw new Error('Missing OpenAI API key. Please provide a valid key.');
+      }
+      this.apiKey = normalizedKey;
+      this.baseUrl = config.baseUrl || 'https://api.openai.com/v1';
     }
-
-    this.apiKey = normalizedKey;
   }
 
   async createVideo(request: VideoGenerationRequest): Promise<VideoGenerationResponse> {
@@ -59,7 +51,7 @@ export class SoraAPI {
       formData.append('seconds', request.duration.toString());
       formData.append('input_reference', request.imageFile);
 
-      const response = await fetch(`${OPENAI_API_BASE}/videos`, {
+      const response = await fetch(`${this.baseUrl}/videos`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
@@ -92,7 +84,7 @@ export class SoraAPI {
       body.input_reference = request.imageUrl;
     }
 
-    const response = await fetch(`${OPENAI_API_BASE}/videos`, {
+    const response = await fetch(`${this.baseUrl}/videos`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -113,7 +105,7 @@ export class SoraAPI {
   }
 
   async getVideo(videoId: string): Promise<VideoGenerationResponse> {
-    const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}`, {
+    const response = await fetch(`${this.baseUrl}/videos/${videoId}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${this.apiKey}`,
@@ -132,7 +124,7 @@ export class SoraAPI {
   }
 
   async listVideos(limit: number = 20): Promise<{ data: VideoGenerationResponse[] }> {
-    const response = await fetch(`${OPENAI_API_BASE}/videos?limit=${limit}`, {
+    const response = await fetch(`${this.baseUrl}/videos?limit=${limit}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${this.apiKey}`,
@@ -151,7 +143,7 @@ export class SoraAPI {
   }
 
   async downloadContent(videoId: string): Promise<Blob> {
-    const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}/content`, {
+    const response = await fetch(`${this.baseUrl}/videos/${videoId}/content`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${this.apiKey}`,
@@ -169,9 +161,9 @@ export class SoraAPI {
     return response.blob();
   }
 
-  async testConnection(): Promise<{ success: boolean; message: string }> {
+  async testConnection(): Promise<ConnectionTestResult> {
     try {
-      const response = await fetch(`${OPENAI_API_BASE}/models`, {
+      const response = await fetch(`${this.baseUrl}/models`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,

@@ -1,13 +1,58 @@
-import { supabase, VideoGeneration } from './supabase';
-import { SoraAPI, VideoGenerationRequest } from './sora-api';
+/**
+ * VideoService - Orchestrates video generation between OpenAI Sora API,
+ * storage, and database services.
+ * 
+ * This service is now fully configurable and portable across projects.
+ */
 
+import type { VideoGeneration, VideoGenerationRequest } from './types';
+import { SoraAPI } from './sora-api';
+import type { VideoServiceConfig } from './config';
+import { createVideoServiceConfig } from './config';
+import type { IStorageService, IDatabaseService } from './interfaces';
+import { createSupabaseServices } from './supabase';
+
+/**
+ * VideoService handles the complete video generation workflow:
+ * 1. Image upload (optional)
+ * 2. Database record creation
+ * 3. OpenAI job creation
+ * 4. Status polling and video download
+ * 5. Storage management
+ */
 export class VideoService {
   private soraAPI: SoraAPI;
+  private storage: IStorageService;
+  private database: IDatabaseService;
+  private config: VideoServiceConfig;
 
-  constructor(apiKey: string) {
-    this.soraAPI = new SoraAPI(apiKey);
+  /**
+   * Constructor accepts either:
+   * - string (apiKey) for backward compatibility
+   * - VideoServiceConfig for full configuration
+   */
+  constructor(configOrApiKey: string | VideoServiceConfig) {
+    // Support both old API (string) and new API (config object) for backward compatibility
+    if (typeof configOrApiKey === 'string') {
+      this.config = createVideoServiceConfig(configOrApiKey);
+      // Use default Supabase services for backward compatibility
+      const services = createSupabaseServices(this.config);
+      this.storage = services.storage;
+      this.database = services.database;
+    } else {
+      this.config = configOrApiKey;
+      // Use provided services or create default Supabase services
+      const services = createSupabaseServices(this.config);
+      this.storage = services.storage;
+      this.database = services.database;
+    }
+
+    this.soraAPI = new SoraAPI(this.config.sora);
   }
 
+  /**
+   * Create a new video generation job
+   */
   async createVideoGeneration(
     request: VideoGenerationRequest,
     imageFile?: File
@@ -16,8 +61,7 @@ export class VideoService {
     let imageFilename: string | null = null;
 
     if (imageFile) {
-      const uploadResult = await this.uploadImage(imageFile);
-      imageUrl = uploadResult.url;
+      imageUrl = await this.uploadImage(imageFile);
       imageFilename = imageFile.name;
     }
 
@@ -31,15 +75,7 @@ export class VideoService {
       image_filename: imageFilename,
     };
 
-    const { data, error } = await supabase
-      .from('video_generations')
-      .insert(dbRecord)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to save video generation: ${error.message}`);
-    }
+    const data = await this.database.createVideoGeneration(dbRecord);
 
     try {
       const videoRequest: VideoGenerationRequest = {
@@ -49,44 +85,31 @@ export class VideoService {
       };
       const response = await this.soraAPI.createVideo(videoRequest);
 
-      await supabase
-        .from('video_generations')
-        .update({
-          openai_job_id: response.id,
-          status: 'processing',
-          metadata: response,
-        })
-        .eq('id', data.id);
+      const updated = await this.database.updateVideoGeneration(data.id, {
+        openai_job_id: response.id,
+        status: 'processing',
+        metadata: response,
+      });
 
-      const { data: updatedData } = await supabase
-        .from('video_generations')
-        .select()
-        .eq('id', data.id)
-        .single();
-
-      return updatedData!;
+      return updated;
     } catch (error) {
-      await supabase
-        .from('video_generations')
-        .update({
-          status: 'failed',
-          error_message: error instanceof Error ? error.message : 'Unknown error',
-        })
-        .eq('id', data.id);
+      await this.database.updateVideoGeneration(data.id, {
+        status: 'failed',
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+      });
 
       throw error;
     }
   }
 
+  /**
+   * Check and update the status of a video generation
+   */
   async checkVideoStatus(generationId: string): Promise<VideoGeneration> {
-    const { data: generation, error } = await supabase
-      .from('video_generations')
-      .select()
-      .eq('id', generationId)
-      .single();
+    const generation = await this.database.getVideoGeneration(generationId);
 
-    if (error) {
-      throw new Error(`Failed to fetch generation: ${error.message}`);
+    if (!generation) {
+      throw new Error(`Video generation ${generationId} not found`);
     }
 
     if (!generation.openai_job_id) {
@@ -141,23 +164,11 @@ export class VideoService {
 
       if (Object.keys(updates).length > 1) {
         console.log(`[VideoService] Updating database with:`, updates);
-        const { error: updateError } = await supabase
-          .from('video_generations')
-          .update(updates)
-          .eq('id', generationId);
-
-        if (updateError) {
-          console.error(`[VideoService] Failed to update database:`, updateError);
-        }
+        const updated = await this.database.updateVideoGeneration(generationId, updates);
+        return updated;
       }
 
-      const { data: updatedData } = await supabase
-        .from('video_generations')
-        .select()
-        .eq('id', generationId)
-        .single();
-
-      return updatedData!;
+      return generation;
     } catch (error) {
       console.error('[VideoService] Error checking video status:', error);
       if (error instanceof Error) {
@@ -170,85 +181,64 @@ export class VideoService {
     }
   }
 
+  /**
+   * Download video from OpenAI and store it
+   */
   private async downloadAndStoreVideo(videoId: string, generationId: string): Promise<string> {
     console.log(`[VideoService] Downloading video ${videoId} from OpenAI...`);
 
     const blob = await this.soraAPI.downloadContent(videoId);
 
-    console.log(`[VideoService] Downloaded ${blob.size} bytes, uploading to Supabase Storage...`);
+    console.log(`[VideoService] Downloaded ${blob.size} bytes, uploading to storage...`);
 
     const fileName = `${generationId}/${videoId}.mp4`;
-    const { error } = await supabase.storage
-      .from('video_files')
-      .upload(fileName, blob, {
-        contentType: 'video/mp4',
-        upsert: true,
-      });
+    const videoUrl = await this.storage.uploadVideo(fileName, blob, 'video/mp4');
 
-    if (error) {
-      throw new Error(`Failed to upload to Supabase Storage: ${error.message}`);
-    }
-
-    const { data: urlData } = supabase.storage
-      .from('video_files')
-      .getPublicUrl(fileName);
-
-    console.log(`[VideoService] Video stored successfully at: ${urlData.publicUrl}`);
-    return urlData.publicUrl;
+    console.log(`[VideoService] Video stored successfully at: ${videoUrl}`);
+    return videoUrl;
   }
 
-  private async uploadImage(file: File): Promise<{ url: string }> {
+  /**
+   * Upload an image file
+   */
+  private async uploadImage(file: File): Promise<string> {
     console.log(`[VideoService] Uploading image: ${file.name}`);
 
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-    const filePath = `uploads/${fileName}`;
+    const filePath = `${this.config.storage.imageUploadPath || 'uploads/'}${fileName}`;
 
-    const { error } = await supabase.storage
-      .from('image_files')
-      .upload(filePath, file, {
-        contentType: file.type,
-        upsert: false,
-      });
+    const imageUrl = await this.storage.uploadImage(filePath, file, file.type);
 
-    if (error) {
-      throw new Error(`Failed to upload image: ${error.message}`);
-    }
-
-    const { data: urlData } = supabase.storage
-      .from('image_files')
-      .getPublicUrl(filePath);
-
-    console.log(`[VideoService] Image uploaded successfully at: ${urlData.publicUrl}`);
-    return { url: urlData.publicUrl };
+    console.log(`[VideoService] Image uploaded successfully at: ${imageUrl}`);
+    return imageUrl;
   }
 
+  /**
+   * List video generations
+   */
   async listVideoGenerations(limit: number = 50): Promise<VideoGeneration[]> {
-    const { data, error } = await supabase
-      .from('video_generations')
-      .select()
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (error) {
-      throw new Error(`Failed to list video generations: ${error.message}`);
-    }
-
-    return data || [];
+    return this.database.listVideoGenerations(limit);
   }
 
+  /**
+   * Delete a video generation
+   */
   async deleteVideoGeneration(generationId: string): Promise<void> {
-    const { error } = await supabase
-      .from('video_generations')
-      .delete()
-      .eq('id', generationId);
-
-    if (error) {
-      throw new Error(`Failed to delete video generation: ${error.message}`);
-    }
+    return this.database.deleteVideoGeneration(generationId);
   }
 
+  /**
+   * Get the SoraAPI instance (for testing/debugging)
+   */
   getSoraAPI(): SoraAPI {
     return this.soraAPI;
+  }
+
+  /**
+   * Get the current configuration
+   */
+  getConfig(): VideoServiceConfig {
+    return this.config;
   }
 }
