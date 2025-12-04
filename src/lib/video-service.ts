@@ -162,13 +162,19 @@ export class VideoService {
         console.log(`[VideoService] Unknown status from API: ${status.status}`);
       }
 
-      if (Object.keys(updates).length > 1) {
+      // Always update the database with metadata (and any other updates)
+      // Then fetch fresh data to ensure we return the latest state
+      if (Object.keys(updates).length > 0) {
         console.log(`[VideoService] Updating database with:`, updates);
-        const updated = await this.database.updateVideoGeneration(generationId, updates);
-        return updated;
+        await this.database.updateVideoGeneration(generationId, updates);
       }
 
-      return generation;
+      // Always fetch fresh data from database to return the latest state
+      const updated = await this.database.getVideoGeneration(generationId);
+      if (!updated) {
+        throw new Error(`Video generation ${generationId} not found after update`);
+      }
+      return updated;
     } catch (error) {
       console.error('[VideoService] Error checking video status:', error);
       if (error instanceof Error) {

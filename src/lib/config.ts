@@ -71,9 +71,10 @@ export function createVideoServiceConfig(
 ): VideoServiceConfig {
   return {
     sora: {
-      apiKey,
       baseUrl: DEFAULT_CONFIG.sora.baseUrl,
       ...overrides?.sora,
+      // apiKey parameter takes priority over any overrides
+      apiKey,
     },
     storage: {
       ...DEFAULT_CONFIG.storage,
